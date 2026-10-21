@@ -20,11 +20,15 @@ class VOCDataset(Dataset):
     for i in range(len(CLASS_NAMES)):
         INV_CLASS[CLASS_NAMES[i]] = i
 
-    def __init__(self, split, size, data_dir='data/VOCdevkit/VOC2007/'):
+    def __init__(self, split, size, data_dir='data/VOCdevkit/VOC2007/', augment=None):
         super().__init__()
         self.split = split
         self.data_dir = data_dir
         self.size = size
+        # augment=False -> no-aug baseline for q1
+        if augment is None:
+            augment = (split != 'test')
+        self.augment = augment
         self.img_dir = os.path.join(data_dir, 'JPEGImages')
         self.ann_dir = os.path.join(data_dir, 'Annotations')
 
@@ -69,8 +73,19 @@ class VOCDataset(Dataset):
             class_vec = torch.zeros(20)
 
             # The weight vector should be a 20-dimensional vector with weight[i] = 0 iff an object of class i has the `difficult` attribute set to 1 in the XML file and 1 otherwise
-            # The difficult attribute specifies whether a class is ambiguous and by setting its weight to zero it does not contribute to the loss during training 
+            # The difficult attribute specifies whether a class is ambiguous and by setting its weight to zero it does not contribute to the loss during training
             weight_vec = torch.ones(20)
+
+            # weight 0 only if every instance of that class is difficult
+            has_easy_instance = torch.zeros(20, dtype=torch.bool)
+            for obj in tree.findall('object'):
+                cls_idx = self.INV_CLASS[obj.find('name').text.strip()]
+                difficult_node = obj.find('difficult')
+                difficult = difficult_node is not None and int(difficult_node.text) == 1
+                class_vec[cls_idx] = 1
+                if not difficult:
+                    has_easy_instance[cls_idx] = True
+            weight_vec[(class_vec > 0) & (~has_easy_instance)] = 0
 
             ######################################################################
             #                            END OF YOUR CODE                        #
@@ -92,7 +107,20 @@ class VOCDataset(Dataset):
         # change and you will have to write the correct value of `flat_dim`
         # in line 46 in simple_cnn.py
         ######################################################################
-        pass
+        # image is already (size, size) here, keep it that way
+        if not self.augment:
+            # test / no-aug: center crop only
+            return [transforms.CenterCrop(self.size)]
+
+        return [
+            # don't crop too aggressively, small objects get cut out otherwise
+            transforms.RandomResizedCrop(self.size, scale=(0.6, 1.0),
+                                         ratio=(3. / 4., 4. / 3.)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            # no hue: breaks in torchvision 0.18 with numpy 2
+            transforms.ColorJitter(brightness=0.3, contrast=0.3,
+                                   saturation=0.3),
+        ]
         ######################################################################
         #                            END OF YOUR CODE                        #
         ######################################################################
@@ -108,7 +136,7 @@ class VOCDataset(Dataset):
         findex = self.index_list[index]
         fpath = os.path.join(self.img_dir, findex + '.jpg')
 
-        img = Image.open(fpath)
+        img = Image.open(fpath).convert('RGB')
 
         trans = transforms.Compose([
             transforms.Resize((self.size, self.size)),

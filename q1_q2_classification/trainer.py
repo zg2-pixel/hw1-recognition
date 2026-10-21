@@ -23,9 +23,10 @@ def save_model(epoch, model_name, model):
 
 
 def train(args, model, optimizer, scheduler=None, model_name='model'):
-    writer = SummaryWriter()
+    writer = SummaryWriter(log_dir=getattr(args, 'log_dir', None))
     train_loader = utils.get_data_loader(
-        'voc', train=True, batch_size=args.batch_size, split='trainval', inp_size=args.inp_size)
+        'voc', train=True, batch_size=args.batch_size, split='trainval', inp_size=args.inp_size,
+        augment=getattr(args, 'augment', True))
     test_loader = utils.get_data_loader(
         'voc', train=False, batch_size=args.test_batch_size, split='test', inp_size=args.inp_size)
 
@@ -53,7 +54,13 @@ def train(args, model, optimizer, scheduler=None, model_name='model'):
             # Function Outputs:
             #   - `output`: Computed loss, a single floating point number
             ##################################################################
-            loss = 0
+            # multi-label -> BCE with logits per class, stable form:
+            # max(x,0) - x*y + log(1 + exp(-|x|))
+            per_class_loss = (torch.clamp(output, min=0) - output * target
+                              + torch.log1p(torch.exp(-torch.abs(output))))
+            # mask out difficult labels (wgt == 0)
+            per_class_loss = per_class_loss * wgt
+            loss = per_class_loss.sum() / torch.clamp(wgt.sum(), min=1.0)
             ##################################################################
             #                          END OF YOUR CODE                      #
             ##################################################################

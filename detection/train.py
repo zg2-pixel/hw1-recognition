@@ -16,7 +16,7 @@ Arguments:
 """
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 import matplotlib.pyplot as plt
 import torch
@@ -29,12 +29,20 @@ from detection_helper import VOC2007DetectionTiny
 from one_stage_detector import FCOS
 from utils.utils import detection_visualizer
 
-if torch.cuda.is_available():
-    print("Good to go!")
-    DEVICE = torch.device("cuda")
-else:
+def select_device(force_cpu: bool = False):
+    if not force_cpu and torch.cuda.is_available():
+        print("Good to go!")
+        return torch.device("cuda")
+    if (not force_cpu and getattr(torch.backends, "mps", None) is not None
+            and torch.backends.mps.is_available()):
+        # mps (apple gpu). torch 2.3 gives wrong grads here -> use --cpu or newer torch
+        print("CUDA not available, using Apple MPS backend.")
+        return torch.device("mps")
     print("Please check your GPU (if running on AWS). Using CPU instead.")
-    DEVICE = torch.device("cpu")
+    return torch.device("cpu")
+
+
+DEVICE = torch.device("cpu")  # set in __main__ via select_device()
 
 NUM_CLASSES = 20
 BATCH_SIZE = 16
@@ -54,12 +62,12 @@ class HyperParameters:
     lr: float = 1e-4
     log_period: int = 100
     max_iters: int = 9000
-    device: str = DEVICE
+    device: str = field(default_factory=lambda: DEVICE)
 
 def create_dataset_and_dataloaders(subset=False):
     train_dataset = VOC2007DetectionTiny(
         DATASET_PATH, "train", image_size=IMAGE_SHAPE[0],
-        download=True# True (set to False after the first time)
+        download=False  # json files already in ../data
     )
     if subset:
         small_dataset = torch.utils.data.Subset(
@@ -220,7 +228,9 @@ if __name__ == '__main__':
     parser.add_argument("--overfit", action="store_true")
     parser.add_argument("--inference", action="store_true")
     parser.add_argument("--test_inference", action="store_true")
+    parser.add_argument("--cpu", action="store_true")
     args = parser.parse_args()
+    DEVICE = select_device(force_cpu=args.cpu)
     print(args.visualize_gt)
     print(args.overfit)
     print(args.inference)

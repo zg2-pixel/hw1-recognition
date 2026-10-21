@@ -48,29 +48,41 @@ class ARGS(object):
     use_cuda = False
     # input size
     inp_size = 224
+    # random augmentation on the train split
+    augment = True
+    # tensorboard dir (None -> runs/<timestamp>)
+    log_dir = None
+    num_workers = 4
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
             assert '__' not in k and hasattr(self, k), "invalid attribute!"
             assert k != 'device', "device property cannot be modified"
             setattr(self, k, v)
-        
+
     def __repr__(self):
         repr_str = ''
         for attr in dir(self):
             if '__' not in attr and attr !='use_cuda':
                 repr_str += 'args.{} = {}\n'.format(attr, getattr(self, attr))
         return repr_str
-    
+
     @property
     def device(self):
-        return torch.device("cuda" if self.use_cuda else "cpu")
+        # cuda > mps > cpu
+        if self.use_cuda:
+            if torch.cuda.is_available():
+                return torch.device("cuda")
+            if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+                return torch.device("mps")
+        return torch.device("cpu")
 
 
-def get_data_loader(name='voc', train=True, batch_size=64, split='train', inp_size=224):
+def get_data_loader(name='voc', train=True, batch_size=64, split='train', inp_size=224,
+                    augment=True, num_workers=4):
     if name == 'voc':
         from voc_dataset import VOCDataset
-        dataset = VOCDataset(split, inp_size)
+        dataset = VOCDataset(split, inp_size, augment=(augment and train))
     else:
         raise NotImplementedError
 
@@ -78,7 +90,7 @@ def get_data_loader(name='voc', train=True, batch_size=64, split='train', inp_si
         dataset,
         batch_size=batch_size,
         shuffle=train,
-        num_workers=4,
+        num_workers=num_workers,
     )
     return loader
 

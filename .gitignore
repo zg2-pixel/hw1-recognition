@@ -1,0 +1,20 @@
+# data
+data/VOCdevkit/
+data/*.tar
+
+# training outputs / logs
+runs/
+detection/detection_logs/
+detection/mAP/
+*.pt
+*.pth
+q2_tsne.png
+
+# report (kept local)
+assignment_1/
+assignment_1_*.pdf
+
+# misc
+__pycache__/
+*.pyc
+.DS_Store
